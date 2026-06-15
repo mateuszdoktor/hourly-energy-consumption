@@ -3,7 +3,6 @@ import numpy as np
 import seaborn as sns
 from scipy.signal import find_peaks, periodogram
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-from statsmodels.tsa.seasonal import MSTL
 
 COLOR_PRIMARY = "steelblue"
 COLOR_SECONDARY = "darkorange"
@@ -158,11 +157,6 @@ def compute_periodogram(series, prominence_frac=0.25):
     peak_idx, _ = find_peaks(psd, prominence=np.max(psd) * prominence_frac)
     peak_idx = peak_idx.astype(int)
     return periods, psd, peak_idx
-
-
-def fit_mstl(series, periods):
-    model = MSTL(series, periods=periods)
-    return model.fit()
 
 
 def plot_mstl_decomposition(decomp, periods, title=None):
