@@ -2,27 +2,75 @@ import pandas as pd
 from statsmodels.tsa.seasonal import MSTL
 import numpy as np
 import holidays
+from meteostat import Point, Hourly
+
+
+def calculate_weather_features(df):
+    start = df.index.min()
+    end = df.index.max()
+    t_base = 18.0
+
+    cities = {
+        "PHL": Point(39.9526, -75.1652),  # Philadelphia
+        "EWR": Point(40.7357, -74.1724),  # Newark
+        "IAD": Point(38.9072, -77.0369),  # Washington DC
+        "BWI": Point(39.2904, -76.6122),  # Baltimore
+        "ILM": Point(39.7447, -75.5484),  # Wilmington
+    }
+
+    for code, point in cities.items():
+        weather = Hourly(point, start=start, end=end).fetch()
+        t = weather["temp"]
+        df[f"cdh_{code}"] = (t - t_base).clip(lower=0)
+        df[f"hdh_{code}"] = (t_base - t).clip(lower=0)
+
+    cdh_columns = [c for c in df.columns if c.startswith("cdh_")]
+    hdh_columns = [c for c in df.columns if c.startswith("hdh_")]
+    df[cdh_columns + hdh_columns] = df[cdh_columns + hdh_columns].interpolate(
+        method="linear"
+    )
+    df["mean_cdh"] = df[cdh_columns].mean(axis=1)
+    df["mean_hdh"] = df[hdh_columns].mean(axis=1)
+    return df
 
 
 def model_features(df):
-    FEATURES_SARIMAX = ["is_weekend", "is_holiday"]
+    # Features for statistical models (averages only)
+    FEATURES_SARIMAX = ["is_weekend", "is_holiday", "mean_cdh", "mean_hdh"]
+
+    # Dynamic Harmonic Regression (Fourier terms + weather averages)
     FOURIER_COLS = [c for c in df.columns if c.startswith(("sin_", "cos_"))]
-    FEATURES_DHR = FOURIER_COLS + ["is_weekend", "is_holiday"]
-    FEATURES_ML = [
-        "energy",
-        "lag_24",
-        "lag_168",
-        "roll_mean_24",
-        "roll_mean_168",
-        "hour_sin",
-        "hour_cos",
-        "dow_sin",
-        "dow_cos",
-        "month_sin",
-        "month_cos",
+    FEATURES_DHR = FOURIER_COLS + [
         "is_weekend",
         "is_holiday",
+        "mean_cdh",
+        "mean_hdh",
     ]
+
+    # Extract city-specific weather columns only (e.g., cdd_PHL, hdd_EWR)
+    CDH_HDH_COLS = [c for c in df.columns if c.startswith(("cdh_", "hdh_"))]
+
+    # Cyclic time encoding features (hour_sin, month_cos, etc.)
+    TIME_CYCLIC_COLS = [
+        c
+        for c in df.columns
+        if c.endswith(("_sin", "_cos")) and not c.startswith(("sin_", "cos_"))
+    ]
+
+    # Features for Machine Learning models
+    FEATURES_ML = (
+        CDH_HDH_COLS
+        + TIME_CYCLIC_COLS
+        + [
+            "lag_24",
+            "lag_168",
+            "roll_mean_24",
+            "roll_mean_168",
+            "is_weekend",
+            "is_holiday",
+        ]
+    )
+
     return {"sarimax": FEATURES_SARIMAX, "dhr": FEATURES_DHR, "ml": FEATURES_ML}
 
 
